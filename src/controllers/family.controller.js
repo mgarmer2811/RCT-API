@@ -22,18 +22,25 @@ exports.getFamilies = async (req, res, next) => {
       where: { user_id: userId },
     });
 
-    const joinedIds = joinedRelation.map((family) => family.family_id);
+    const joinedIds = joinedRelation.map(
+      (familyUserRow) => familyUserRow.family_id
+    );
+
     if (joinedIds.length > 0) {
       joined = await Family.findAll({
-        where: { id: joinedIds },
+        where: {
+          id: joinedIds,
+          creator_id: { [Op.ne]: userId },
+        },
       });
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       createdFamilies: created,
       joinedFamilies: joined,
     });
   } catch (err) {
+    console.error(err);
     next(err);
   }
 };
@@ -49,7 +56,7 @@ exports.createFamily = async (req, res, next) => {
   }
   if (familyName.length !== 10) {
     return res.status(400).json({
-      message: "400 Bad Request. The familyName must be 10 characters long",
+      message: "400 Bad Request. The family name must be 10 characters long",
     });
   }
 
@@ -61,6 +68,14 @@ exports.createFamily = async (req, res, next) => {
     });
     const joinedCount = await FamilyUser.count({
       where: { user_id: userId },
+      include: [
+        {
+          model: Family,
+          attributes: [],
+          where: { creator_id: { [Op.ne]: userId } },
+          required: true,
+        },
+      ],
       transaction: transaction,
     });
 
@@ -71,43 +86,117 @@ exports.createFamily = async (req, res, next) => {
         .json({ message: "400 Bad Request. The user already has 3 families" });
     }
 
-    let family = await Family.findOne({
+    let existing = await Family.findOne({
       where: { name: familyName },
       transaction: transaction,
     });
 
-    if (family) {
-      const alreadyIn = await FamilyUser.findOne({
-        where: { family_id: family.id, user_id: userId },
+    if (existing) {
+      await transaction.rollback();
+      return res.status(400).json({
+        message: "400 Bad Request. A family with that name already exists",
       });
-
-      if (alreadyIn) {
-        await transaction.rollback();
-        return res.status(400).json({
-          message: "400 Bad Request. The user is already part of the family",
-        });
-      }
-
-      await FamilyUser.create(
-        { family_id: family.id, user_id: userId },
-        { transaction: transaction }
-      );
-      await transaction.commit();
-      return res.status(201).json({ message: "Joined family succesfully!" });
-    } else {
-      family = await Family.create(
-        { name: familyName, creator_id: userId },
-        { transaction: transaction }
-      );
-      await FamilyUser.create(
-        { family_id: family.id, user_id: userId },
-        { transaction: transaction }
-      );
-      await transaction.commit();
-      return res.status(200).json({ message: "Created family succesfully!" });
     }
+
+    const family = await Family.create(
+      {
+        name: familyName,
+        creator_id: userId,
+      },
+      { transaction: transaction }
+    );
+    await FamilyUser.create(
+      {
+        family_id: family.id,
+        user_id: userId,
+      },
+      { transaction: transaction }
+    );
+    await transaction.commit();
+    return res.status(200).json({ message: "Created family succesfully!" });
   } catch (err) {
     await transaction.rollback();
+    console.error(err);
+    next(err);
+  }
+};
+
+exports.joinFamily = async (req, res, next) => {
+  const userId = req.query.userId;
+  const { familyName } = req.body;
+
+  if (!userId) {
+    return res
+      .status(400)
+      .json({ message: "400 Bad Request. Missing userId in query parameters" });
+  }
+
+  if (familyName.length !== 10) {
+    return res.status(400).json({
+      message: "400 Bad Request. The family name must be 10 characters long",
+    });
+  }
+
+  const transaction = await sequelize.transaction();
+  try {
+    const family = await Family.findOne({
+      where: { name: familyName },
+      transaction: transaction,
+    });
+
+    if (!family) {
+      await transaction.rollback();
+      return res
+        .status(404)
+        .json({ message: "404 Not Found. Family not found" });
+    }
+
+    const alreadyIn = await FamilyUser.findOne({
+      where: { family_id: family.id, user_id: userId },
+      transaction: transaction,
+    });
+
+    if (alreadyIn) {
+      await transaction.rollback();
+      return res.status(400).json({
+        message: "400 Bad Request. The user is already part of the family",
+      });
+    }
+
+    const createdCount = await Family.count({
+      where: { creator_id: userId },
+      transaction: transaction,
+    });
+    const joinedCount = await FamilyUser.count({
+      where: { user_id: userId },
+      include: [
+        {
+          model: Family,
+          attributes: [],
+          where: { creator_id: { [Op.ne]: userId } },
+          required: true,
+        },
+      ],
+      transaction: transaction,
+    });
+
+    if (createdCount + joinedCount >= 3) {
+      await transaction.rollback();
+      return res
+        .status(400)
+        .json({ message: "400 Bad Request. The user already has 3 families" });
+    }
+
+    await FamilyUser.create(
+      { family_id: family.id, user_id: userId },
+      { transaction: transaction }
+    );
+
+    await transaction.commit();
+    return res.status(201).json({ message: "Joined the family succesfully!" });
+  } catch (err) {
+    await transaction.rollback();
+    console.error(err);
     next(err);
   }
 };
