@@ -18,7 +18,7 @@ async function start() {
     console.log("Models synchronized succesfully!");
 
     app.listen(PORT, () => {
-      console.log(`Server listening on http://localhost:${PORT}`);
+      console.log(`Server listening on port: ${PORT}`);
     });
   } catch (err) {
     console.error("Failed to start the server\n", err);
