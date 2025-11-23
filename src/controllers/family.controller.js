@@ -113,7 +113,7 @@ exports.createFamily = async (req, res, next) => {
       { transaction: transaction }
     );
     await transaction.commit();
-    return res.status(200).json({ message: "Created family succesfully!" });
+    return res.status(201).json({ message: "Created family successfully!" });
   } catch (err) {
     await transaction.rollback();
     console.error(err);
@@ -193,7 +193,7 @@ exports.joinFamily = async (req, res, next) => {
     );
 
     await transaction.commit();
-    return res.status(201).json({ message: "Joined the family succesfully!" });
+    return res.status(201).json({ message: "Joined the family successfully!" });
   } catch (err) {
     await transaction.rollback();
     console.error(err);
@@ -238,7 +238,7 @@ exports.deleteFamily = async (req, res, next) => {
       await transaction.commit();
       return res
         .status(200)
-        .json({ message: "The family was dissolved succesfully!" });
+        .json({ message: "The family was dissolved successfully!" });
     } else {
       const deleted = await FamilyUser.destroy({
         where: { family_id: id, user_id: userId },
@@ -253,7 +253,7 @@ exports.deleteFamily = async (req, res, next) => {
       await transaction.commit();
       return res
         .status(200)
-        .json({ message: "The user left the family succesfully!" });
+        .json({ message: "The user left the family successfully!" });
     }
   } catch (err) {
     await transaction.rollback();

@@ -2,9 +2,9 @@ const express = require("express");
 const router = express.Router();
 const familyController = require("../controllers/family.controller");
 
+router.get("/get", familyController.getFamilies);
 router.post("/create", familyController.createFamily);
 router.post("/join", familyController.joinFamily);
-router.get("/", familyController.getFamilies);
-router.delete("/:familyId", familyController.deleteFamily);
+router.delete("/delete/:familyId", familyController.deleteFamily);
 
 module.exports = router;
