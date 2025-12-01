@@ -3,13 +3,15 @@ const sequelize = require("../config/database");
 const Transaction = require("../models/transaction.model");
 const Goal = require("../models/goal.model");
 const TransactionGoal = require("../models/transactionGoal.model");
+const { computeGoalPayload } = require("../goalRealtime");
+const socket = require("../socket");
+
+let payload = {};
 
 exports.getTransactions = async (req, res, next) => {
   const userId = req.query.userId;
   if (!userId) {
-    return res
-      .status(400)
-      .json({ message: "400 Bad Request. Missing userId in query parameters" });
+    return res.status(404).json({ message: "404 Bad Request. Missing userId" });
   }
 
   try {
@@ -27,108 +29,112 @@ exports.getTransactions = async (req, res, next) => {
 exports.createTransaction = async (req, res, next) => {
   const userId = req.query.userId;
   const goalId = req.query.goalId;
-  const { quantity, category, type } = req.body;
+  const { quantity, category, type, created_at } = req.body;
 
   if (!userId) {
-    return res
-      .status(400)
-      .json({ message: "400 Bad Request. Missing userId in query parameters" });
+    return res.status(400).json({ message: "400 Bad Request. Missing userId" });
   }
 
-  if (goalId) {
-    const sTransaction = await sequelize.transaction();
-    try {
-      const transaction = await Transaction.create(
-        {
-          creator_id: userId,
-          quantity: quantity,
-          category: category,
-          type: type,
-          created_at: new Date().toISOString().split("T")[0],
-        },
-        { transaction: sTransaction }
-      );
+  const sTransaction = await sequelize.transaction();
 
-      if (!transaction) {
-        await sTransaction.rollback();
-        return res.status(500).json({
-          message:
-            "500 Internal Server error. Unexpected error while creating the transaction",
-        });
-      }
-
-      await TransactionGoal.create(
-        {
-          goal_id: goalId,
-          transaction_id: transaction.id,
-        },
-        { transaction: sTransaction }
-      );
-      await transaction.commit();
-      return res.status(201).json({
-        message: "Created transaction and transactionGoal successfully!",
-      });
-    } catch (err) {
-      await sTransaction.rollback();
-      console.error(err);
-      next(err);
-    }
-  } else {
-    try {
-      const transaction = await Transaction.create({
+  try {
+    const transaction = await Transaction.create(
+      {
         creator_id: userId,
         quantity: quantity,
         category: category,
         type: type,
-        created_at: new Date().toISOString().split("T")[0],
-      });
+        created_at: created_at,
+      },
+      {
+        transaction: sTransaction,
+      }
+    );
 
-      return res
-        .status(201)
-        .json({ message: "Created transaction sucessfully!" });
-    } catch (err) {
-      console.error(err);
-      next(err);
+    if (!transaction) {
+      await sTransaction.rollback();
+      return res.status(500).json({
+        message:
+          "500 Internal Server error. Unexpected error while creating the transaction",
+      });
     }
+
+    if (goalId) {
+      await TransactionGoal.create(
+        {
+          goal_id: Number(goalId),
+          transaction_id: transaction.id,
+        },
+        {
+          transaction: sTransaction,
+        }
+      );
+    }
+
+    await sTransaction.commit();
+
+    const userRoom = `user_${userId}`;
+    const io = socket.getIo();
+    payload = { transaction };
+    io.to(userRoom).emit("transaction:created", payload);
+
+    if (goalId) {
+      payload = await computeGoalPayload(Number(goalId));
+      io.to(userRoom).emit("goal:updated", payload);
+    }
+
+    return res
+      .status(201)
+      .json({ message: "Created transaction successfully!" });
+  } catch (err) {
+    await sTransaction.rollback();
+    console.error(err);
+    next(err);
   }
 };
 
 exports.updateTransaction = async (req, res, next) => {
   const userId = req.query.userId;
-  const transactionId = req.params.transactionId;
-  const { quantity, category, type, created_at } = req.body;
+  const transactionId = req.query.transactionId;
+  const { quantity, category, type } = req.body;
 
   if (!userId) {
     return res.status(400).json({
-      message: "400 Bad Request. Missing userId in query parameters",
+      message: "400 Bad Request. Missing userId",
     });
   }
 
   if (!transactionId) {
     return res
       .status(400)
-      .json({ message: "404 Not Found. Transaction id not found" });
+      .json({ message: "400 Bad Request. Missing transactionId" });
   }
 
   try {
     const transaction = await Transaction.findOne({
-      where: { id: transactionId, creator_id: userId },
+      where: { id: Number(transactionId), creator_id: userId },
     });
 
     if (!transaction) {
-      return res.status(400).json({
+      return res.status(404).json({
         message: "404 Not Found. Transaction (to be updated) not found",
       });
     }
+
+    const tgRelation = await TransactionGoal.findOne({
+      where: { transaction_id: Number(transactionId) },
+      raw: true,
+    });
+
+    const goalId = tgRelation?.goal_id ?? null;
 
     const results = await Transaction.update(
       {
         quantity: quantity,
         category: category,
         type: type,
-        created_at: created_at,
       },
-      { where: { id: transactionId }, returning: true }
+      { where: { id: Number(transactionId) }, returning: true }
     );
 
     if (results[0] === 0) {
@@ -138,6 +144,15 @@ exports.updateTransaction = async (req, res, next) => {
       });
     }
 
+    const userRoom = `user_${userId}`;
+    const io = socket.getIo();
+    payload = { transaction: results[1][0] };
+    io.to(userRoom).emit("transaction:updated", payload);
+
+    if (goalId) {
+      payload = computeGoalPayload(Number(goalId));
+      io.to(userRoom).emit("goal:updated", payload);
+    }
     return res
       .status(200)
       .json({ message: "Transaction updated successfully!" });
@@ -149,26 +164,40 @@ exports.updateTransaction = async (req, res, next) => {
 
 exports.deleteTransaction = async (req, res, next) => {
   const userId = req.query.userId;
-  const goalId = req.query.goalId;
   const transactionId = req.params.transactionId;
 
   if (!userId) {
-    return res.status(400).json({
-      message: "400 Bad Request. Missing userId in query parameters",
+    return res.status(404).json({
+      message: "400 Bad Request. Missing userId",
     });
   }
 
   if (!transactionId) {
     return res
       .status(400)
-      .json({ message: "404 Not Found. Transaction id not found" });
+      .json({ message: "400 Bad Request. Missing transactionId" });
   }
 
-  if (goalId) {
+  try {
+    const tgRelation = await TransactionGoal.findOne({
+      where: { transaction_id: Number(transactionId) },
+      attributes: ["goal_id"],
+      raw: true,
+    });
+
+    const goalId = tgRelation?.goal_id ?? null;
     const sTransaction = await sequelize.transaction();
+
     try {
+      if (goalId) {
+        await TransactionGoal.destroy({
+          where: { transaction_id: Number(transactionId) },
+          transaction: sTransaction,
+        });
+      }
+
       const deleted = await Transaction.destroy({
-        where: { id: transactionId, creator_id: userId },
+        where: { id: Number(transactionId), creator_id: userId },
         transaction: sTransaction,
       });
 
@@ -179,47 +208,37 @@ exports.deleteTransaction = async (req, res, next) => {
           .json({ message: "404 Not Found. Transaction not found" });
       }
 
-      await TransactionGoal.destroy({
-        where: { goal_id: goalId, transaction_id: transactionId },
-        transaction: sTransaction,
-      });
+      await sTransaction.commit();
+
+      const userRoom = `user_${userId}`;
+      const io = socket.getIo();
+      payload = { transactionId: Number(transactionId) };
+      io.to(userRoom).emit("transaction:deleted", payload);
+
+      if (goalId) {
+        payload = await computeGoalPayload(Number(goalId));
+        io.to(userRoom).emit("goal:updated", payload);
+      }
       return res
-        .status(204)
-        .json({ message: "Transaction deleted successfully!" });
+        .status(200)
+        .json({ message: "Deleted transaction successfully!" });
     } catch (err) {
       await sTransaction.rollback();
       console.error(err);
       next(err);
     }
-  } else {
-    try {
-      const transaction = await Transaction.findOne({
-        where: { id: transactionId, creator_id: userId },
-      });
-
-      if (!transaction) {
-        return res.status(400).json({
-          message: "404 Not Found. Transaction (to be deleted) not found",
-        });
-      }
-
-      const deleted = await Transaction.destroy({
-        where: { id: transactionId },
-      });
-      return res
-        .status(200)
-        .json({ message: "Transaction deleted successfully!" });
-    } catch (err) {
-      console.error(err);
-      next(err);
-    }
+  } catch (err) {
+    console.error(err);
+    next(err);
   }
 };
 
 /*************************************/
 
-exports.getUserGoals = async (req, res, next) => {
+exports.getGoals = async (req, res, next) => {
   const userId = req.query.userId;
+  const familyId = req.query.familyId;
+
   if (!userId) {
     return res
       .status(400)
@@ -227,20 +246,36 @@ exports.getUserGoals = async (req, res, next) => {
   }
 
   try {
-    const goals = await Goal.findAll({
-      where: { creator_id: userId, family_id: { [Op.is]: null } },
-    });
+    const where = {};
 
-    return res.status(200).json({ goals: goals });
+    if (familyId) {
+      where.family_id = Number(familyId);
+    } else {
+      where.creator_id = userId;
+      where.family_id = { [Op.is]: null };
+    }
+
+    const goals = await Goal.findAll({ where });
+
+    const payloads = await Promise.all(goals.map((g) => computeGoalPayload(g)));
+    const computedGoals = payloads.filter(Boolean).map((p) => ({
+      ...p.goal,
+      current: p.current,
+      remaining: p.remaining,
+      percentDisplayed: p.percentDisplayed,
+      barPercent: p.barPercent,
+    }));
+
+    return res.status(200).json({ goals: computedGoals });
   } catch (err) {
     console.error(err);
     next(err);
   }
 };
 
-exports.createUserGoal = async (req, res, next) => {
+exports.createGoal = async (req, res, next) => {
   const userId = req.query.userId;
-  const { type, quantity } = req.body;
+  const { type, quantity, name } = req.body;
 
   if (!userId) {
     return res
@@ -253,9 +288,16 @@ exports.createUserGoal = async (req, res, next) => {
       family_id: null,
       type: type,
       quantity: quantity,
+      name: name,
       completed: false,
       creator_id: userId,
+      created_at: new Date().toISOString().split("T")[0],
     });
+
+    payload = await computeGoalPayload(goal);
+    const userRoom = `user_${userId}`;
+    const io = socket.getIo();
+    io.to(userRoom).emit("goal:created", payload);
 
     return res.status(201).json({ message: "Created goal succcesfully!" });
   } catch (err) {
@@ -264,10 +306,11 @@ exports.createUserGoal = async (req, res, next) => {
   }
 };
 
-exports.updateUserGoal = async (req, res, next) => {
+exports.updateGoal = async (req, res, next) => {
   const userId = req.query.userId;
   const goalId = req.params.goalId;
-  const { quantity, completed, type } = req.body;
+  const familyId = req.query.familyId;
+  const { quantity, completed, name } = req.body;
 
   if (!userId) {
     return res.status(400).json({
@@ -284,11 +327,11 @@ exports.updateUserGoal = async (req, res, next) => {
   try {
     const results = await Goal.update(
       {
-        type: type,
+        name: name,
         quantity: quantity,
         completed: completed,
       },
-      { where: { id: goalId, creator_id: userId }, returning: true }
+      { where: { id: Number(goalId) }, returning: true }
     );
 
     if (results[0] === 0) {
@@ -298,6 +341,17 @@ exports.updateUserGoal = async (req, res, next) => {
       });
     }
 
+    payload = await computeGoalPayload(Number(goalId));
+    const io = socket.getIo();
+
+    if (!familyId) {
+      const userRoom = `user_${userId}`;
+      io.to(userRoom).emit("goal:updated", payload);
+    } else {
+      const familyRoom = `family_${familyId}`;
+      io.to(familyRoom).emit("goal:updated", payload);
+    }
+
     return res.status(200).json({ message: "Updated goal successfully!" });
   } catch (err) {
     console.error(err);
@@ -305,7 +359,7 @@ exports.updateUserGoal = async (req, res, next) => {
   }
 };
 
-exports.deleteUserGoal = async (req, res, next) => {
+exports.deleteGoal = async (req, res, next) => {
   const userId = req.query.userId;
   const goalId = req.params.goalId;
 
@@ -323,7 +377,7 @@ exports.deleteUserGoal = async (req, res, next) => {
 
   try {
     const deleted = await Goal.destroy({
-      where: { id: goalId, creator_id: userId },
+      where: { id: Number(goalId), creator_id: userId },
     });
 
     if (!deleted) {
@@ -331,6 +385,11 @@ exports.deleteUserGoal = async (req, res, next) => {
         .status(404)
         .json({ message: "404 Not Found. Goal (to be deleted) not found" });
     }
+
+    const userRoom = `user_${userId}`;
+    const io = socket.getIo();
+    io.to(userRoom).emit("goal:deleted", { goalId: Number(goalId) });
+
     return res.status(204).json({ message: "Deleted user goal successfully!" });
   } catch (err) {
     console.error(err);
