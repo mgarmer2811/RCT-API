@@ -95,7 +95,7 @@ exports.createTransaction = async (req, res, next) => {
 
 exports.updateTransaction = async (req, res, next) => {
   const userId = req.query.userId;
-  const transactionId = req.query.transactionId;
+  const transactionId = req.params.transactionId;
   const { quantity, category, type } = req.body;
 
   if (!userId) {

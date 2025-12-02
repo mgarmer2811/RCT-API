@@ -1,4 +1,3 @@
-const socket = require("./socket");
 const Transaction = require("../src/models/transaction.model");
 const TransactionGoal = require("../src/models/transactionGoal.model");
 const Goal = require("../src/models/goal.model");
