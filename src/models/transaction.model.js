@@ -23,7 +23,7 @@ const Transaction = sequelize.define(
       allowNull: false,
     },
     type: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.BOOLEAN,
       allowNull: false,
     },
     created_at: {

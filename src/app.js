@@ -20,7 +20,9 @@ app.get("/", (req, res) => {
 
 app.use((err, req, res, next) => {
   console.error(err);
-  res.status(500).json({ message: "500. Internal server error" });
+  res
+    .status(500)
+    .json({ message: "500. Internal server error. This was thrown in app.js" });
 });
 
 module.exports = app;

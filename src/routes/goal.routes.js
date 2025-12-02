@@ -2,9 +2,9 @@ const express = require("express");
 const router = express.Router();
 const transactionController = require("../controllers/transaction.controller");
 
-router.get("/get", transactionController.getUserGoals);
-router.post("/create", transactionController.createUserGoal);
-router.patch("/update/:goalId", transactionController.updateUserGoal);
-router.delete("/delete/:goalId", transactionController.deleteUserGoal);
+router.get("/get", transactionController.getGoals);
+router.post("/create", transactionController.createGoal);
+router.patch("/update/:goalId", transactionController.updateGoal);
+router.delete("/delete/:goalId", transactionController.deleteGoal);
 
 module.exports = router;

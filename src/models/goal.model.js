@@ -18,11 +18,15 @@ const Goal = sequelize.define(
       type: DataTypes.INTEGER,
     },
     type: {
-      type: DataTypes.INTEGER,
+      type: DataTypes.BOOLEAN,
       allowNull: false,
     },
     quantity: {
       type: DataTypes.DECIMAL,
+      allowNull: false,
+    },
+    name: {
+      type: DataTypes.TEXT,
       allowNull: false,
     },
     completed: {
