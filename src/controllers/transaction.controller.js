@@ -96,7 +96,7 @@ exports.createTransaction = async (req, res, next) => {
 exports.updateTransaction = async (req, res, next) => {
   const userId = req.query.userId;
   const transactionId = req.params.transactionId;
-  const { quantity, category, type, created_at } = req.body;
+  const { quantity, category, type } = req.body;
 
   if (!userId) {
     return res.status(400).json({
