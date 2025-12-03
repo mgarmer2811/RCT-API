@@ -310,7 +310,7 @@ exports.updateGoal = async (req, res, next) => {
   const userId = req.query.userId;
   const goalId = req.params.goalId;
   const familyId = req.query.familyId;
-  const { quantity, completed, name } = req.body;
+  const { quantity, name } = req.body;
 
   if (!userId) {
     return res.status(400).json({
@@ -325,11 +325,14 @@ exports.updateGoal = async (req, res, next) => {
   }
 
   try {
+    const computedValues = await computeGoalPayload(Number(goalId));
+    const computedCompleted = computedValues.goal.completed;
+
     const results = await Goal.update(
       {
         name: name,
         quantity: quantity,
-        completed: completed,
+        completed: computedCompleted,
       },
       { where: { id: Number(goalId) }, returning: true }
     );
@@ -341,7 +344,7 @@ exports.updateGoal = async (req, res, next) => {
       });
     }
 
-    payload = await computeGoalPayload(Number(goalId));
+    payload = computedValues;
     const io = socket.getIo();
 
     if (!familyId) {

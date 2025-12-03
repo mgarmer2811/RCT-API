@@ -43,6 +43,8 @@ async function computeGoalPayload(goal) {
       ? Math.max(0, Math.min(100, (remaining / quantity) * 100))
       : Math.max(0, Math.min(100, (current / quantity) * 100));
 
+  const isCompleted = current >= quantity;
+
   const payload = {
     current,
     remaining,
@@ -53,7 +55,7 @@ async function computeGoalPayload(goal) {
       quantity: goalObj.quantity,
       name: goalObj.name,
       type: goalObj.type,
-      completed: goalObj.completed,
+      completed: isCompleted,
       creator_id: goalObj.creator_id,
       family_id: goalObj.family_id,
       created_at: goalObj.created_at,
