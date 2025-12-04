@@ -32,17 +32,11 @@ async function computeGoalPayload(goal) {
 
   const quantity = parseFloat(goalObj.quantity) || 0;
   const isBudget = goalObj.type;
-  const remaining = isBudget ? Math.max(0, quantity - current) : null;
+  const remaining = isBudget ? quantity - current : null;
   const percentDisplayed =
     quantity === 0 ? 0 : Math.max(0, Math.min(100, (current / quantity) * 100));
-
   const barPercent =
-    quantity === 0
-      ? 0
-      : isBudget
-      ? Math.max(0, Math.min(100, (remaining / quantity) * 100))
-      : Math.max(0, Math.min(100, (current / quantity) * 100));
-
+    quantity === 0 ? 0 : Math.max(0, Math.min(100, (current / quantity) * 100));
   const isCompleted = current >= quantity;
 
   const payload = {

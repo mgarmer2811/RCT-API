@@ -131,8 +131,8 @@ exports.updateTransaction = async (req, res, next) => {
     const results = await Transaction.update(
       {
         quantity: quantity,
-        category: category,
-        type: type,
+        category: category ?? transaction.category,
+        type: type ?? transaction.type,
       },
       { where: { id: Number(transactionId) }, returning: true }
     );
@@ -150,7 +150,7 @@ exports.updateTransaction = async (req, res, next) => {
     io.to(userRoom).emit("transaction:updated", payload);
 
     if (goalId) {
-      payload = computeGoalPayload(Number(goalId));
+      payload = await computeGoalPayload(Number(goalId));
       io.to(userRoom).emit("goal:updated", payload);
     }
     return res
@@ -394,6 +394,17 @@ exports.deleteGoal = async (req, res, next) => {
     io.to(userRoom).emit("goal:deleted", { goalId: Number(goalId) });
 
     return res.status(204).json({ message: "Deleted user goal successfully!" });
+  } catch (err) {
+    console.error(err);
+    next(err);
+  }
+};
+
+exports.getTransactionGoals = async (req, res, next) => {
+  try {
+    const transactionGoals = await TransactionGoal.findAll();
+
+    return res.status(200).json({ transactionGoals: transactionGoals });
   } catch (err) {
     console.error(err);
     next(err);
