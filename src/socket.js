@@ -8,8 +8,6 @@ function init(server) {
   });
 
   io.on("connection", (socket) => {
-    console.log("Socket connected:", socket.id);
-
     socket.on("join", ({ userId, familyId } = {}) => {
       if (userId) {
         socket.join(`user_${userId}`);
